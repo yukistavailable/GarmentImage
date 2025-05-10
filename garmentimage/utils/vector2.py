@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 if TYPE_CHECKING:
-    from garmentimage.utils.utils_2d import Vertex2D
+    from garmentimage.utils.vertex2d import Vertex2D
 
 EdgeInfoType = List[Dict[str, Union[np.ndarray, Dict, int]]]
 PanelToEdgeInfoType = Dict[str, EdgeInfoType]
