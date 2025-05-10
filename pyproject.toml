@@ -1,0 +1,19 @@
+[project]
+name = "garmentimage"
+version = "0.1.0"
+description = "Implementation of GarmentImage"
+readme = "README.md"
+requires-python = ">=3.9.0"
+dependencies = [
+    "jupyter>=1.1.1",
+    "matplotlib>=3.9.4",
+    "numpy>=2.0.2",
+    "python-dotenv>=1.1.0",
+    "scikit-learn>=1.6.1",
+    "scipy>=1.13.1",
+    "shapely>=2.0.7",
+    "torch>=2.7.0",
+    "tqdm>=4.67.1",
+    "triangle>=20250106",
+    "wandb>=0.19.11",
+]
