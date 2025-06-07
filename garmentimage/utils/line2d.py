@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from garmentimage.utils.vector2 import Vector2
-    from garmentimage.utils.vertex2d import Vertex2D
+from garmentimage.utils.vertex2d import Vector2, Vertex2D
 
 
 class Line2D:

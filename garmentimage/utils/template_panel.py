@@ -5,6 +5,9 @@ from typing import TYPE_CHECKING, List, Optional
 import numpy as np
 
 from garmentimage.utils.errors import SeamTypeMismatchError
+from garmentimage.utils.template import Template
+from garmentimage.utils.template_piece import TemplatePiece
+from garmentimage.utils.vertex2d import Vector2, Vertex2D
 
 if TYPE_CHECKING:
     from garmentimage.utils.draw_panel import DrawPanel
@@ -13,10 +16,6 @@ if TYPE_CHECKING:
     from garmentimage.utils.face import Face2D
     from garmentimage.utils.piece import Piece
     from garmentimage.utils.seam import Seam
-    from garmentimage.utils.template import Template
-    from garmentimage.utils.template_piece import TemplatePiece
-    from garmentimage.utils.vector2 import Vector2
-    from garmentimage.utils.vertex2d import Vertex2D
 
 
 class TemplatePanel:

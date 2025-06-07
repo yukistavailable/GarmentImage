@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 import matplotlib.pyplot as plt
 
+from garmentimage.utils.edge2d import Edge2D
+from garmentimage.utils.face import Face2D
+from garmentimage.utils.vertex2d import Vector2, Vertex2D
+
 if TYPE_CHECKING:
-    from garmentimage.utils.edge2d import Edge2D
-    from garmentimage.utils.face import Face2D
     from garmentimage.utils.seam import Seam
-    from garmentimage.utils.vector2 import Vector2
-    from garmentimage.utils.vertex2d import Vertex2D
 
 
 class Mesh2D:

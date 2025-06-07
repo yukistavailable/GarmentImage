@@ -7,15 +7,15 @@ import scipy
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import spsolve
 
+from garmentimage.utils.template import Template
+from garmentimage.utils.vertex2d import Vector2, Vertex2D
+
 if TYPE_CHECKING:
     from garmentimage.utils.edge2d import Edge2D
     from garmentimage.utils.face import Face2D
     from garmentimage.utils.mesh import Mesh2D
     from garmentimage.utils.piece import Piece
     from garmentimage.utils.seam import Seam
-    from garmentimage.utils.template import Template
-    from garmentimage.utils.vector2 import Vector2
-    from garmentimage.utils.vertex2d import Vertex2D
 
 
 class SparseMatrixScipy:

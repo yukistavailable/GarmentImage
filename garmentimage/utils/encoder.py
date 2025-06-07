@@ -2,23 +2,21 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import scipy
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import spsolve
 
-if TYPE_CHECKING:
-    from garmentimage.utils.edge2d import Edge2D
-    from garmentimage.utils.embedding import BoundaryEmbedding, Embedding
-    from garmentimage.utils.face import Face2D
-    from garmentimage.utils.mesh import Mesh2D
-    from garmentimage.utils.piece import Piece
-    from garmentimage.utils.seam import Seam
-    from garmentimage.utils.template import Template
-    from garmentimage.utils.vector2 import Vector2
-    from garmentimage.utils.vertex2d import Vertex2D
+from garmentimage.utils.edge2d import Edge2D
+from garmentimage.utils.embedding import BoundaryEmbedding, Embedding
+from garmentimage.utils.face import Face2D
+from garmentimage.utils.mesh import Mesh2D
+from garmentimage.utils.piece import Piece
+from garmentimage.utils.seam import Seam
+from garmentimage.utils.template import Template
+from garmentimage.utils.vertex2d import Vector2, Vertex2D
 
 
 class Encoder:
@@ -321,7 +319,7 @@ class Encoder:
         for seam in seams:
             v0: Vertex2D = seam.start.corner
             v1: Vertex2D = seam.end.corner
-            tmp_mesh: Mesh2D = Mesh2D(faces, integrate_adjascent_face_edges=True)
+            tmp_mesh: Mesh2D = Mesh2D(faces, integrate_adjacent_face_edges=True)
             if template is not None:
                 seam_points: List[Vertex2D] = Template.get_path(
                     tmp_mesh,

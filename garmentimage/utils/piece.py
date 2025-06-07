@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 import matplotlib.pyplot as plt
 import numpy as np
 
+from garmentimage.utils.seam import Seam
+from garmentimage.utils.vertex2d import Vector2, Vertex2D
+
 if TYPE_CHECKING:
-    from garmentimage.utils.seam import Seam
     from garmentimage.utils.template_piece import TemplatePiece
-    from garmentimage.utils.vector2 import Vector2
-    from garmentimage.utils.vertex2d import Vertex2D
 
 
 class Piece:
@@ -328,6 +328,13 @@ class Piece:
                         markersize=7,
                     )
             min_x, max_x, min_y, max_y = np.inf, -np.inf, np.inf, -np.inf
+            for seam in piece.seams:
+                start = seam.start
+                end = seam.end
+                min_x = min(min_x, start.x, end.x)
+                max_x = max(max_x, start.x, end.x)
+                min_y = min(min_y, start.y, end.y)
+                max_y = max(max_y, start.y, end.y)
         ax.set_xticks(
             range(
                 int(min_x) - 1,
