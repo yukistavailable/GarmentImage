@@ -28,49 +28,38 @@ class Encoder:
         pieces: List[Piece],
         template: Template,
         is_reversed: bool,
-        visualize: bool = False,
-        symmetrize: bool = False,  # deprecated
         pieces_original_shape: Optional[List[Piece]] = None,
-        symmetrize_is_left_base: bool = True,
         is_seam_reversed: bool = False,
     ):
+        # clear edge type and inside/outside flags in the template just in case
         template.clear()
+
         # faces that each piece contains
         piece_to_faces, face_to_pieces = BoundaryEmbedding.embed_v2(
             template, pieces, is_reversed=is_seam_reversed
         )
 
         # adjust overlapping faces
-        # piece_to_faces, face_to_piece = Encoder.adjust_overlapping_faces(
-        #     piece_to_faces, face_to_pieces
-        # )
+        piece_to_faces, _ = Encoder.adjust_overlapping_faces(
+            piece_to_faces, face_to_pieces
+        )
 
-        meshes: List[Mesh2D] = template.meshes
-        original_meshes: List[Mesh2D] = template.original_meshes
         template.clear_meshes()
         template.original_meshes.clear()
         for piece in pieces:
-            # boundary_only = False becuase faces have no information about seam_type, which means it is impossible to detect kireme
-            # piece.template_piece.update_points(
-            #     faces=piece_to_faces[piece],
-            #     boundary_only=False,
-            #     consider_seam_type=True,
-            # )
-            Embedding.embed_seam_type_into_template_v2(piece, template)
-            # Embedding.modify_seam_points(piece, template, faces=piece_to_faces[piece])
+            Embedding.embed_seam_type_into_template_v3(
+                piece, piece_to_faces[piece], template
+            )
 
-        # template.visualize_faces("output_debug/faces.png")
-        # exit()
-
+        meshes: List[Mesh2D] = template.meshes
+        original_meshes: List[Mesh2D] = template.original_meshes
         for i, piece in enumerate(pieces):
-            # print(f"Encoding piece {piece}")
             piece_mesh: Mesh2D = Encoder.get_mesh2D(
                 piece,
                 piece_to_faces[piece],
                 template=template,
             )
             original_meshes.append(piece_mesh.duplicate())
-            # print("Constraints")
             constraints: Dict[Vertex2D, Vertex2D] = (
                 Encoder.find_transfer_constraints_v2(
                     piece_mesh,
@@ -83,7 +72,6 @@ class Encoder:
             )
             assert piece.template_piece is not None, "piece.template_piece is None"
             piece.template_piece.add_constraints(constraints)
-            # piece.template_piece.add_original_constraints(deepcopy(constraints))
             original_constraints: Dict[Vertex2D, Vertex2D] = {
                 k.duplicate(): v.duplicate() for k, v in constraints.items()
             }
@@ -99,6 +87,19 @@ class Encoder:
         face_to_pieces: Dict[Face2D, List[Piece]],
     ) -> Tuple[Dict[Piece, List[Face2D]], Dict[Face2D, Piece]]:
         """
+        Parameters
+        ----------
+        piece_to_faces: Dict[Piece, List[Face2D]]
+            A dictionary mapping each piece to its associated faces.
+        face_to_pieces: Dict[Face2D, List[Piece]]
+            A dictionary mapping each face to the pieces it belongs to.
+        Returns
+        -------
+        Tuple[Dict[Piece, List[Face2D]], Dict[Face2D, Piece]]
+            A tuple containing two dictionaries:
+            - A dictionary mapping each piece to its adjusted list of faces.
+            - A dictionary mapping each face to the piece it is assigned to.
+
         Adjusts overlapping faces by assigning each face to the nearest piece.
         """
         new_piece_to_faces: Dict[Piece, List[Face2D]] = defaultdict(list)
@@ -133,6 +134,23 @@ class Encoder:
     def deform_template_to_piece_edge(
         piece_mesh: Mesh2D, constraints: Dict[Vertex2D, Vertex2D]
     ):
+        """
+        Deforms the piece mesh to match the constraints provided.
+        Parameters
+        ----------
+        piece_mesh: Mesh2D
+            The mesh of the piece to deform.
+        constraints: Dict[Vertex2D, Vertex2D]
+            A dictionary mapping vertices in the piece mesh to their target positions.
+        Returns
+        -------
+        None
+
+        Deforms the piece mesh to match the constraints by solving a linear constrained least squares problem.
+        The constraints are provided as a dictionary mapping vertices in the piece mesh to their target positions.
+        The function constructs the edge adjacency matrix and the constraint matrix, then solves the linear least squares problem to find the new positions of the vertices in the piece mesh.
+        The new positions are then applied to the vertices of the piece mesh.
+        """
         piece_mesh.set_indices()
 
         num_constraints = len(constraints)
@@ -211,6 +229,32 @@ class Encoder:
         template: Optional[Template] = None,
         address_inside_seam: bool = False,
     ) -> Mesh2D:
+        """
+        Parameters
+        ----------
+        piece: Piece
+            The piece object for which to create the mesh.
+        inside_faces: List[Face2D]
+            The list of faces that are inside the piece.
+        decode_mode: bool
+            If True, the function retrieves boundary edges directly from the piece.
+            If False, it retrieves boundary edges from the provided faces.
+        template: Optional[Template]
+            The template object to use for retrieving boundary edges from faces.
+        address_inside_seam: bool
+            If True, the function will also include edges from inside seams in the mesh.
+
+        Returns
+        -------
+        Mesh2D
+            A Mesh2D object containing the inside faces and seam edges of the piece.
+
+        Creates a Mesh2D object from the given piece and its inside faces.
+        The mesh includes boundary edges and optionally edges from inside seams.
+        If `decode_mode` is True, it retrieves boundary edges directly from the piece.
+        If `decode_mode` is False, it retrieves boundary edges from the provided faces.
+        If `address_inside_seam` is True, it also includes edges from inside seams.
+        """
         if decode_mode:
             boundary_edges: Set[Edge2D] = Encoder.get_boundary_edges(piece)
         else:
@@ -353,6 +397,29 @@ class Encoder:
         is_reversed: bool,
         piece_original_shape: Optional[Piece] = None,
     ) -> Dict[Vertex2D, Vertex2D]:
+        """
+        Parameters
+        ----------
+        piece_mesh: Mesh2D
+            The mesh of the piece to find constraints for.
+        piece: Piece
+            The piece object containing the seams.
+        is_reversed: bool
+            Whether the seams are reversed or not.
+        piece_original_shape: Optional[Piece]
+            The original shape of the piece, if available. If None, the constraints will be based
+            on the current seams of the piece.
+        Returns
+        -------
+        Dict[Vertex2D, Vertex2D]
+            A dictionary mapping vertices in the piece mesh to their target positions on the seams.
+
+        Finds constraints for the piece mesh based on its seams and the original shape of the piece.
+        If `piece_original_shape` is provided, it uses the seams from that shape to determine
+        the target positions for the vertices in the piece mesh. If not provided, it uses the
+        current seams of the piece. The constraints are created by sampling points along the seams
+        and mapping them to the corresponding vertices in the piece mesh.
+        """
         constraints: Dict[Vertex2D, Vertex2D] = {}
         if piece_original_shape is not None:
             seams = Piece.sorted_seams(piece.seams if piece.seams else [])
@@ -373,11 +440,7 @@ class Encoder:
             points: List[Vertex2D] = seam.points
             if is_reversed:
                 points = list(reversed(points))
-                print("is_reversed")
             path: List[Vertex2D] = []
-            print(f"points: {points}")
-            print(f"seam: {seam}")
-            print(f"target_seam: {target_seam}")
             for i in range(len(points) - 1):
                 v0: Vertex2D = points[i]
                 v1: Vertex2D = points[i + 1]

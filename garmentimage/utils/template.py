@@ -3,29 +3,20 @@ from __future__ import annotations
 import os
 from copy import copy
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple, Union
 
-import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
-from dotenv import load_dotenv
 
+from garmentimage.utils.draw_panel import DrawPanel
 from garmentimage.utils.edge2d import Edge2D
 from garmentimage.utils.face import Face2D
 from garmentimage.utils.line2d import Line2D
 from garmentimage.utils.mesh import Mesh2D
 from garmentimage.utils.piece import Piece
 from garmentimage.utils.seam import Seam
+from garmentimage.utils.utils import GARMENT_IMAGE_RESOLUTION, TEMPLATE_W
 from garmentimage.utils.vertex2d import Vector2, Vertex2D
-
-if TYPE_CHECKING:
-    from garmentimage.utils.template_piece import TemplatePiece
-
-
-load_dotenv(override=True)
-GARMENT_IMAGE_RESOLUTION = int(os.getenv("GARMENT_IMAGE_RESOLUTION", 16))
-print(f"GARMENT_IMAGE_RESOLUTION: {GARMENT_IMAGE_RESOLUTION}")
-TEMPLATE_W = int(os.getenv("TEMPLATE_W", 512))
 
 
 class Template(Mesh2D):
@@ -1958,178 +1949,146 @@ class Template(Mesh2D):
                                     break
         return stitched_edges_pairs
 
-    @staticmethod
-    def visualize_np_garmentimage(
-        np_garmentimage: np.ndarray,
-        output_file_path: Optional[str] = None,
-        markersize: int = 5,
-        axis_off: bool = True,
-        only_deformations: bool = False,
-        deform_scale: float = 1.0,
-    ) -> None:
-        alpha = 0.5
-        color = "gray"
 
-        C, W, H = np_garmentimage.shape
-        scale = Template.W / W
+class TemplatePiece:
+    def __init__(
+        self,
+        _piece: Optional[Piece] = None,
+        _template: Optional[Template] = None,
+        update_corners: bool = True,
+    ):
+        self.template: Optional[Template] = _template
+        self.template.add_template_piece(self)
+        self.piece: Optional[Piece] = _piece
+        self.original_constraints: Dict[Vertex2D, Vertex2D] = {}
+        self.constraints: Dict[Vertex2D, Vertex2D] = {}
+        if self.piece is not None:
+            self.piece.template_piece = self
+        self.linked: bool = True
+        self.seam_to_points: Dict[Seam, List[Vertex2D]] = {}
+        self.outer_loop: List[Vertex2D]
+        self.outer_loop_boundary_types: List[int]
+        if update_corners:
+            self.update_corners()
 
-        for i in range(2):
-            fig, ax = plt.subplots()
-            ax.set_aspect("equal", "box")
-            tmp_output_file_path = None
-            if output_file_path is not None:
-                if i == 0:
-                    tmp_output_file_path = output_file_path.replace(
-                        ".png", "_front.png"
+    def add_constraints(self, constraints: Dict[Vertex2D, Vertex2D]):
+        for key, value in constraints.items():
+            self.constraints[key] = value
+
+    def add_original_constraints(self, constraints: Dict[Vertex2D, Vertex2D]):
+        for key, value in constraints.items():
+            self.original_constraints[key] = value
+
+    def duplicate(self, new_piece: Piece) -> TemplatePiece:
+        new_templatepiece: TemplatePiece = TemplatePiece()
+        new_templatepiece.piece = new_piece
+        new_templatepiece.template = self.template
+        new_piece.template_piece = new_templatepiece
+        new_templatepiece.update_points()
+        return new_templatepiece
+
+    def drawPanel_to_templatePanel(self, v: Vertex2D) -> Vertex2D:
+        CENTER_X: float = DrawPanel.get_width() / 2
+        CENTER_Y: float = DrawPanel.get_height() / 2
+        x: float = v.x - CENTER_X + TEMPLATE_W / 2
+        y: float = v.y - CENTER_Y + TEMPLATE_W / 2
+        return Vertex2D(x, y)
+
+    def update_corners(self, seams: Optional[List[Seam]] = None):
+        if seams is None:
+            seams = self.piece.get_all_seams()
+        for seam in seams:
+            if seam.start.corner is None:
+                seam.start.corner = Vertex2D(
+                    self.template.find_nearest_vertex(
+                        self.drawPanel_to_templatePanel(seam.start)
                     )
-                else:
-                    tmp_output_file_path = output_file_path.replace(".png", "_back.png")
-            start_index = i * 17
-            for x in range(W):
-                for y in range(W):
-                    scaled_x = x * scale
-                    scaled_y = y * scale
-                    scaled_x_plus_1 = (x + 1) * scale
-                    scaled_y_plus_1 = (y + 1) * scale
-                    if np_garmentimage[start_index + 0, x, y] == 1:
-                        x_axis_seam_type = np.argmax(
-                            np_garmentimage[start_index + 9 : start_index + 13, x, y]
-                        )
-                        x_axis_linestyle = Seam.boundary_types_to_linestyle[
-                            x_axis_seam_type
-                        ]
-                        x_axis_linecolor = Seam.boundary_types_to_color[
-                            x_axis_seam_type
-                        ]
-                        ax.plot(
-                            [scaled_x, scaled_x_plus_1],
-                            [scaled_y, scaled_y],
-                            marker=None,
-                            linestyle=x_axis_linestyle,
-                            color=x_axis_linecolor,
-                            alpha=1.0,
-                            markersize=markersize,
-                        )
-                        y_axis_seam_type = np.argmax(
-                            np_garmentimage[start_index + 13 : start_index + 17, x, y]
-                        )
-                        y_axis_linestyle = Seam.boundary_types_to_linestyle[
-                            y_axis_seam_type
-                        ]
-                        y_axis_linecolor = Seam.boundary_types_to_color[
-                            y_axis_seam_type
-                        ]
-                        ax.plot(
-                            [scaled_x, scaled_x],
-                            [scaled_y, scaled_y_plus_1],
-                            marker=None,
-                            linestyle=y_axis_linestyle,
-                            color=y_axis_linecolor,
-                            alpha=1.0,
-                            markersize=markersize,
-                        )
-                        deform_bottom = (
-                            np_garmentimage[start_index + 1 : start_index + 3, x, y]
-                            * scale
-                        )
-                        deform_left = (
-                            np_garmentimage[start_index + 3 : start_index + 5, x, y]
-                            * scale
-                        )
-                        deform_top = (
-                            np_garmentimage[start_index + 5 : start_index + 7, x, y]
-                            * scale
-                        )
-                        deform_right = (
-                            np_garmentimage[start_index + 7 : start_index + 9, x, y]
-                            * scale
-                        )
-                        x_vector = (deform_bottom + deform_top) / 2 * deform_scale
-                        y_vector = (deform_left + deform_right) / 2 * deform_scale
+                )
+            if seam.end.corner is None:
+                seam.end.corner = self.template.find_nearest_vertex(
+                    self.drawPanel_to_templatePanel(seam.end)
+                )
+        self.update_points()
 
-                        origin = np.array([scaled_x, scaled_y])
-                        dest = origin + x_vector + y_vector
-                        mid = (origin + dest) / 2
-                        new_origin = (
-                            origin
-                            + np.array([scaled_x + scale / 2, scaled_y + scale / 2])
-                        ) - mid
-                        parallelogram_points = [
-                            new_origin,
-                            new_origin + x_vector,
-                            new_origin + x_vector + y_vector,
-                            new_origin + y_vector,
-                        ]
-                        polygon = patches.Polygon(
-                            parallelogram_points,
-                            closed=True,
-                            edgecolor=color,
-                            facecolor=color,
-                            alpha=alpha,
-                        )
-                        ax.add_patch(polygon)
+    def update_points(
+        self,
+        faces: Optional[List[Face2D]] = None,
+        boundary_only: bool = False,
+        consider_seam_type: bool = False,
+        update_corners: bool = False,
+    ):
+        """
+        Update the points of seams and the outer loop for a piece of template-based design or structure
+        This method plays a crucial role in dynamically updating the geometry of a template-based piece, especially after changes in the template or the piece itself. It recalculates the points along the seams of the piece and updates an outer loop that defines the boundary or outline of the piece.
+        """
+        mesh: Optional[Mesh2D] = (
+            Mesh2D(faces, integrate_adjacent_face_edges=True)
+            if faces is not None
+            else None
+        )
+        for seam in self.piece.get_all_seams():
+            if mesh is not None:
+                if update_corners:
+                    start = mesh.find_nearest_vertex_specified_seam_type(
+                        seam.start.corner, seam.type
+                    )
+                    end = mesh.find_nearest_vertex_specified_seam_type(
+                        seam.end.corner, seam.type
+                    )
+                    seam.start.corner = (
+                        start if start is not None else seam.start.corner
+                    )
+                    seam.end.corner = end if end is not None else seam.end.corner
+                v0: Vertex2D = seam.start.corner
+                v1: Vertex2D = seam.end.corner
 
-                    else:
-                        if x != 0 and np_garmentimage[start_index + 0, x - 1, y] == 1:
-                            y_axis_seam_type = np.argmax(
-                                np_garmentimage[
-                                    start_index + 13 : start_index + 17, x, y
-                                ]
-                            )
-                            y_axis_linestyle = Seam.boundary_types_to_linestyle[
-                                y_axis_seam_type
-                            ]
-                            y_axis_linecolor = Seam.boundary_types_to_color[
-                                y_axis_seam_type
-                            ]
-                            ax.plot(
-                                [scaled_x, scaled_x],
-                                [scaled_y, scaled_y_plus_1],
-                                marker=None,
-                                linestyle=y_axis_linestyle,
-                                color=y_axis_linecolor,
-                                alpha=1.0,
-                                markersize=markersize,
-                            )
-                        if y != 0 and np_garmentimage[start_index + 0, x, y - 1] == 1:
-                            x_axis_seam_type = np.argmax(
-                                np_garmentimage[
-                                    start_index + 9 : start_index + 13, x, y
-                                ]
-                            )
-                            x_axis_linestyle = Seam.boundary_types_to_linestyle[
-                                x_axis_seam_type
-                            ]
-                            x_axis_linecolor = Seam.boundary_types_to_color[
-                                x_axis_seam_type
-                            ]
-                            ax.plot(
-                                [scaled_x, scaled_x_plus_1],
-                                [scaled_y, scaled_y],
-                                marker=None,
-                                linestyle=x_axis_linestyle,
-                                color=x_axis_linecolor,
-                                alpha=1.0,
-                                markersize=markersize,
-                            )
-
-            ax.set_xticks(
-                range(0, Template.W + 1),
-                minor=True,
-            )
-            ax.set_yticks(
-                range(0, Template.W + 1),
-                minor=True,
-            )
-            if axis_off:
-                ax.axis("off")
-            if output_file_path is not None:
-                dir_path = os.path.dirname(tmp_output_file_path)
-                if not os.path.exists(dir_path):
-                    os.makedirs(dir_path)
-                fig.savefig(tmp_output_file_path)
-                fig.savefig(tmp_output_file_path.replace(".png", ".svg"), format="svg")
+                seam_points: List[Vertex2D] = Template.get_path(
+                    mesh,
+                    v0,
+                    v1,
+                    boundary_only=boundary_only,
+                    is_reversed=False,
+                    seam_type=seam.type if consider_seam_type else None,
+                )
+                seam_points: List[Vertex2D] = Template.get_path_v2(
+                    mesh,
+                    v0,
+                    v1,
+                    seam_type=seam.type if consider_seam_type else None,
+                )
             else:
-                plt.show()
-            # close the figure to prevent memory leak
-            plt.close(fig)
+                v0: Vertex2D = seam.start.corner
+                v1: Vertex2D = seam.end.corner
+                seam_points: List[Vertex2D] = Template.get_path(
+                    self.template,
+                    v0,
+                    v1,
+                    boundary_only=boundary_only,
+                    is_reversed=False,
+                    seam_type=seam.type if consider_seam_type else None,
+                )
+            self.seam_to_points[seam] = seam_points
+        self.outer_loop = []
+        self.outer_loop_boundary_types = []
+        for seam in self.piece.seams:
+            points: List[Vertex2D] = self.seam_to_points[seam]
+            for i in range(len(points) - 1):
+                self.outer_loop.append(points[i])
+                self.outer_loop_boundary_types.append(seam.type)
+
+    def encloses(self, v: Vertex2D, reversed: bool) -> bool:
+        """
+        Checks if v is within the bounds of the piece, taking into account whether the piece is reversed.
+        """
+        sign: int = -1 if reversed else 1
+        total: float = 0
+        for seam in self.piece.seams:
+            seam_points: List[Vertex2D] = self.seam_to_points[seam]
+            for i in range(len(seam_points) - 1):
+                v0: Vertex2D = seam_points[i]
+                v1: Vertex2D = seam_points[i + 1]
+                vec0: Vector2 = Vector2(v, v0)
+                vec1: Vector2 = Vector2(v, v1)
+                total += Vector2.get_angle_signed_180(vec0, vec1)
+        total *= sign
+        return total > 180

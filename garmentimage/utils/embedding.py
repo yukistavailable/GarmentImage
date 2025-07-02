@@ -7,15 +7,15 @@ import scipy
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import spsolve
 
+from garmentimage.utils.face import Face2D
+from garmentimage.utils.mesh import Mesh2D
+from garmentimage.utils.seam import Seam
 from garmentimage.utils.template import Template
 from garmentimage.utils.vertex2d import Vector2, Vertex2D
 
 if TYPE_CHECKING:
     from garmentimage.utils.edge2d import Edge2D
-    from garmentimage.utils.face import Face2D
-    from garmentimage.utils.mesh import Mesh2D
     from garmentimage.utils.piece import Piece
-    from garmentimage.utils.seam import Seam
 
 
 class SparseMatrixScipy:
@@ -41,6 +41,64 @@ class Embedding:
 
     def __init__(self) -> None:
         pass
+
+    @staticmethod
+    def embed_seam_type_into_template_v3(
+        piece: Piece, faces: List[Face2D], template: Template
+    ):
+        """
+        Parameters
+        ----------
+        piece : Piece
+            The piece whose seams will be embedded into the template.
+        faces : List[Face2D]
+            The faces of the template that will be used to find the nearest vertices.
+        template : Template
+            The template into which the seams will be embedded.
+
+        This method iterates through the seams of the piece, finds the nearest vertices on the template faces for each seam point,
+        and updates the seam points accordingly. It also updates the edge types in the template's grid vertices based on the seam type.
+        The method assumes that the piece has seams defined and that the faces are part of the template's grid structure.
+        """
+        seams: List[Seam] = piece.seams if piece.seams else []
+        for seam in seams:
+            assert seam.start.corner is not None and seam.end.corner is not None, (
+                "The start and end of the seam are not set. Please set them before embedding."
+            )
+            new_points = []
+            for i in range(len(seam.points) - 1):
+                v0: Vertex2D = seam.points[i]
+                v1: Vertex2D = seam.points[i + 1]
+
+                # xy0: List[int] = Template.get_grid_xy(nearest_v0_on_faces)
+                # xy1: List[int] = Template.get_grid_xy(nearest_v1_on_faces)
+
+                nearest_v0_on_faces = Face2D.find_nearest_vertex_on_faces(faces, v0)
+                nearest_v1_on_faces = Face2D.find_nearest_vertex_on_faces(faces, v1)
+                xy0 = nearest_v0_on_faces.grid_xy
+                xy1 = nearest_v1_on_faces.grid_xy
+
+                # left and bottom
+                x: int = min(xy0[0], xy1[0])
+                y: int = min(xy0[1], xy1[1])
+
+                if xy0[1] == xy1[1]:
+                    template.grid_vertices[x][y].X_EDGE_TYPE = seam.type
+                else:
+                    template.grid_vertices[x][y].Y_EDGE_TYPE = seam.type
+
+                new_points.append(nearest_v0_on_faces)
+            new_points.append(nearest_v1_on_faces)
+            seam.points = new_points
+
+        for x in range(Template.N):  # Assuming Template.N defines the grid size
+            for y in range(Template.N):
+                template.h_edges[x][y].seam_type = template.grid_vertices[x][
+                    y
+                ].X_EDGE_TYPE
+                template.v_edges[x][y].seam_type = template.grid_vertices[x][
+                    y
+                ].Y_EDGE_TYPE
 
     @staticmethod
     def embed_seam_type_into_template_v2(piece: Piece, template: Template):
@@ -129,7 +187,7 @@ class Embedding:
     def modify_seam_points(piece: Piece, template: Template, faces: List[Face2D]):
         seams = piece.get_all_seams()
         tmp_mesh: Optional[Mesh2D] = (
-            Mesh2D(faces, integrate_adjascent_face_edges=True)
+            Mesh2D(faces, integrate_adjacent_face_edges=True)
             if faces is not None
             else None
         )
@@ -205,6 +263,7 @@ class Embedding:
                         break
                 if updated_flag:
                     piece.template_piece.seam_to_points[seam] = new_seam_points
+                    # seam.points = new_seam_points
 
     @staticmethod
     def embed_transformation_into_template(piece_mesh: Mesh2D, template: Template):
@@ -239,8 +298,35 @@ class BoundaryEmbedding:
         template: Template, pieces: List[Piece], is_reversed: bool = False
     ) -> Tuple[Dict[Piece, List[Face2D]], Dict[Face2D, List[Piece]]]:
         """
-        Embed pieces into the template based on edges of pieces, not depending on the center of the face.
+        Parameters
+        ----------
+        template : Template
+            The template to embed the pieces into.
+            The faces of the template will be used to determine if a piece is inside a face.
+        pieces : List[Piece]
+            The pieces to embed into the template.
+            Each piece should have its seams defined.
+        is_reversed : bool, optional
+            If True, the seams will be processed in reverse order.
+
+        Returns
+        -------
+        Tuple[Dict[Piece, List[Face2D]], Dict[Face2D, List[Piece]]]
+            A tuple containing two dictionaries:
+            - piece_to_faces: Maps each piece to a list of faces that it contains.
+            - face_to_pieces: Maps each face to a list of pieces that contain it.
+
+        This method finds the nearest vertex on the template for each seam start and end point,
+        and then constructs the path between them based on the template's grid structure.
+        In the end, it assigns faces to pieces based on whether the piece's path encloses the face's center.
+
+        The method assumes that the template has a grid structure defined by its vertices and edges.
+        It uses the `Template.get_path_v2` method to find the path between seam start and end points,
+        taking into account the seam type and previous direction.
+        The method also checks if the last two vertices of the path are adjacent, ensuring that the
+        path is valid and follows the grid structure of the template.
         """
+
         face_to_pieces: Dict[Face2D, List[Piece]] = defaultdict(list)
         piece_to_faces: Dict[Piece, List[Face2D]] = defaultdict(list)
 
@@ -277,11 +363,8 @@ class BoundaryEmbedding:
                             )
                             start, end = end, start
 
-                    print(f"start: {start}, end: {end}")
                     seam_type = seam.type
                     if start is not None and end is not None:
-                        print(f"prev_seam_type: {prev_seam_type}")
-                        print("prev_direction: ", prev_direction)
                         path = Template.get_path_v2(
                             start=start,
                             end=end,
@@ -333,7 +416,7 @@ class BoundaryEmbedding:
                     face.inside = 1
                     piece_to_faces[piece].append(face)
                     face_to_pieces[face].append(piece)
-                    break
+                    # break
 
         return piece_to_faces, face_to_pieces
 

@@ -9,7 +9,7 @@ from garmentimage.utils.seam import Seam
 from garmentimage.utils.vertex2d import Vector2, Vertex2D
 
 if TYPE_CHECKING:
-    from garmentimage.utils.template_piece import TemplatePiece
+    from garmentimage.utils.template import TemplatePiece
 
 
 class Piece:
@@ -335,6 +335,13 @@ class Piece:
                 max_x = max(max_x, start.x, end.x)
                 min_y = min(min_y, start.y, end.y)
                 max_y = max(max_y, start.y, end.y)
+                ax.plot(
+                    [start.x, end.x],
+                    [start.y, end.y],
+                    marker="o" if use_points else "None",
+                    linestyle=Seam.boundary_types_to_linestyle[seam.type],
+                    alpha=1.0,
+                )
         ax.set_xticks(
             range(
                 int(min_x) - 1,

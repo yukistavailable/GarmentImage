@@ -2,16 +2,14 @@ from __future__ import annotations
 
 import queue
 from copy import copy
-from typing import TYPE_CHECKING, Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 import matplotlib.pyplot as plt
 
 from garmentimage.utils.edge2d import Edge2D
 from garmentimage.utils.face import Face2D
+from garmentimage.utils.seam import Seam
 from garmentimage.utils.vertex2d import Vector2, Vertex2D
-
-if TYPE_CHECKING:
-    from garmentimage.utils.seam import Seam
 
 
 class Mesh2D:

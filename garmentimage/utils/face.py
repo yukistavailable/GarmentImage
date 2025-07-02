@@ -94,3 +94,20 @@ class Face2D:
                     if edge.seam_type is not None and edge.seam_type != Seam.NONE:
                         edges.append(edge)
         return edges
+
+    @staticmethod
+    def find_nearest_vertex_on_faces(faces: List[Face2D], v: Vertex2D) -> Vertex2D:
+        """
+        Get the grid coordinates [x, y] of a given Vertex2D object.
+        """
+        nearest_vertex: Optional[Vertex2D] = None
+        min_distance: float = float("inf")
+        for face in faces:
+            vertices = face.get_vertices()
+            for vertex in vertices:
+                distance = vertex.distance(v)
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest_vertex = vertex
+        assert nearest_vertex is not None, "No nearest vertex found"
+        return nearest_vertex

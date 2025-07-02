@@ -7,7 +7,7 @@ from garmentimage.utils.vertex2d import Vector2, Vertex2D
 
 if TYPE_CHECKING:
     from garmentimage.utils.face import Face2D
-    from garmentimage.utils.seam import Seam
+from garmentimage.utils.seam import Seam
 
 
 class Edge2D:

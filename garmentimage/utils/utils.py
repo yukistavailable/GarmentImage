@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import os
 from typing import Dict, List, Union
 
+from dotenv import load_dotenv
 import numpy as np
 import torch
+
+load_dotenv(override=True)
+GARMENT_IMAGE_RESOLUTION = int(os.getenv("GARMENT_IMAGE_RESOLUTION", 16))
+print(f"GARMENT_IMAGE_RESOLUTION: {GARMENT_IMAGE_RESOLUTION}")
+TEMPLATE_W = int(os.getenv("TEMPLATE_W", 512))
 
 EdgeInfoType = List[Dict[str, Union[np.ndarray, Dict, int]]]
 PanelToEdgeInfoType = Dict[str, EdgeInfoType]

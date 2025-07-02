@@ -5,8 +5,7 @@ from typing import TYPE_CHECKING, List, Optional
 import numpy as np
 
 from garmentimage.utils.errors import SeamTypeMismatchError
-from garmentimage.utils.template import Template
-from garmentimage.utils.template_piece import TemplatePiece
+from garmentimage.utils.template import Template, TemplatePiece
 from garmentimage.utils.vertex2d import Vector2, Vertex2D
 
 if TYPE_CHECKING:
@@ -219,12 +218,9 @@ class TemplatePanel:
         self,
         draw_panel: DrawPanel,
         encoder: Encoder,
-        symmetrize: bool = False,
         draw_panel_original_shape: Optional[DrawPanel] = None,
         strict_seam_type_match: bool = False,
-        symmetrize_base: str = "flexible",
     ):
-        assert symmetrize_base in ["flexible", "left_base", "right_base"]
         for template in self.templates:
             template.clear_meshes()
         layer_pieces: List[Optional[List[Piece]]] = draw_panel.get_layer_pieces(False)
@@ -237,21 +233,13 @@ class TemplatePanel:
             # i = 1
             reversed: bool = False if (i == 0 or i == 2) else True
             assert layer_pieces[i] is not None
-            if symmetrize_base == "flexible":
-                is_left_base = True if i == 0 else False
-            elif symmetrize_base == "left_base":
-                is_left_base = True
-            else:
-                is_left_base = False
             encoder.encode_pieces_to_template_v2(
                 layer_pieces[i],
                 self.templates[i],
                 reversed,
-                symmetrize=symmetrize,
                 pieces_original_shape=None
                 if layer_pieces_original_shape is None
                 else layer_pieces_original_shape[i],
-                symmetrize_is_left_base=is_left_base,
                 is_seam_reversed=True if i == 1 else False,
             )
 

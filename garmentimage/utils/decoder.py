@@ -1,23 +1,27 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+import json
+import os
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+import torch
 from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
 
-if TYPE_CHECKING:
-    from garmentimage.utils.draw_panel import DrawPanel
-    from garmentimage.utils.edge2d import Edge2D
-    from garmentimage.utils.embedding import BoundaryEmbedding
-    from garmentimage.utils.encoder import Encoder
-    from garmentimage.utils.face import Face2D
-    from garmentimage.utils.mesh import Mesh2D
-    from garmentimage.utils.piece import Piece
-    from garmentimage.utils.seam import Seam
-    from garmentimage.utils.template import Template
-    from garmentimage.utils.template_panel import TemplatePanel
-    from garmentimage.utils.vertex2d import Vertex2D
+from garmentimage.utils.draw_panel import DrawPanel
+from garmentimage.utils.edge2d import Edge2D
+from garmentimage.utils.embedding import BoundaryEmbedding
+from garmentimage.utils.encoder import Encoder
+from garmentimage.utils.face import Face2D
+from garmentimage.utils.mesh import Mesh2D
+from garmentimage.utils.neural_tailor_converter import NeuralTailorConverter
+from garmentimage.utils.piece import Piece
+from garmentimage.utils.seam import Seam
+from garmentimage.utils.template import Template
+from garmentimage.utils.template_panel import TemplatePanel
+from garmentimage.utils.utils import GarmentImageType
+from garmentimage.utils.vertex2d import Vertex2D
 
 
 class Decoder:
@@ -293,3 +297,209 @@ class Decoder:
             if edge.left_face is None or edge.right_face is None:
                 return edge
         return None
+
+
+def decode_garmentimage(
+    garmentimage: GarmentImageType,
+    output_file_path: Optional[str] = None,
+    visualize: bool = False,
+    visualize_faces: bool = False,
+    use_vertex_constraints: bool = True,
+    predefined_scale: float = 2.75,
+    reconstruct_spec_json: bool = False,
+    inside_theshold: float = 0.5,
+    garment_type: Optional[str] = None,
+    strict_garment_type: bool = True,
+    reject_two_pieces: bool = False,
+    desirable_piece_num: Optional[int] = None,
+    n_tries: int = 5,
+    address_inside_seam: bool = False,
+) -> Optional[Dict[str, Any]]:
+    visualize_faces = visualize_faces or visualize
+    if reconstruct_spec_json:
+        assert garment_type is not None or desirable_piece_num is not None, (
+            "garment_type or desirable_piece_num should be specified"
+        )
+        assert garment_type in [
+            None,
+            "dress",
+            "jumpsuit",
+            "dress_sleeveless",
+            "jumpsuit_sleeveless",
+            "dress_sleeveless_centerseparated_skirtremoved",
+            "dress_sleeveless_skirtremoved",
+            "dress_centerseparated_skirtremoved",
+            "dress_skirtremoved",
+            "unmerged_dress",
+            "unmerged_dress_sleeveless",
+            "jumpsuit_centerseparated",
+            "jumpsuit_sleeveless_centerseparated",
+            "unmerged_dress_centerseparated",
+            "one_genus_jumpsuit_sleeveless",
+            "merged_jumpsuit_sleeveless",
+        ], (
+            f"garment_type should be either dress, jumpsuit, dress_sleeveless, or jumpsuit_sleeveless, but got {garment_type}"
+        )
+
+    if garment_type is not None and desirable_piece_num is None:
+        panel_to_desirable_piece_num = {
+            "dress_sleeveless": 1,
+            "dress": 3,
+            "jumpsuit_sleeveless": 3,
+            "jumpsuit": 5,
+            "dress_sleeveless_centerseparated_skirtremoved": 2,
+            "dress_sleeveless_skirtremoved": 1,
+            "dress_centerseparated_skirtremoved": 4,
+            "dress_skirtremoved": 3,
+            "unmerged_dress": 4,
+            "unmerged_dress_sleeveless": 2,
+            "jumpsuit_centerseparated": 6,
+            "jumpsuit_sleeveless_centerseparated": 4,
+            "unmerged_dress_centerseparated": 5,
+            "one_genus_jumpsuit_sleeveless": 4,
+            "merged_jumpsuit_sleeveless": 1,
+        }
+        desirable_piece_num = panel_to_desirable_piece_num[garment_type]
+
+    if output_file_path is not None:
+        output_file_dir_path = os.path.dirname(output_file_path)
+        front_output_file_path = os.path.join(
+            output_file_dir_path,
+            os.path.splitext(os.path.basename(output_file_path))[0] + "_front.png",
+        )
+        back_output_file_path = os.path.join(
+            output_file_dir_path,
+            os.path.splitext(os.path.basename(output_file_path))[0] + "_back.png",
+        )
+        spec_json_file_path = os.path.join(
+            output_file_dir_path,
+            os.path.splitext(os.path.basename(output_file_path))[0]
+            + "_specification.json",
+        )
+    template_panel = TemplatePanel()
+    # convert the garment image to np array
+    if isinstance(garmentimage, str):
+        garmentimage = np.load(garmentimage)
+    if isinstance(garmentimage, torch.Tensor):
+        if len(garmentimage.shape) == 4:
+            garmentimage = garmentimage[0]
+        garmentimage = garmentimage.cpu().detach().numpy()
+
+    template_panel.convert_from_np_array(garmentimage, inside_threshold=inside_theshold)
+
+    for i, template in enumerate(template_panel.templates):
+        if i == 0 or i == 1:
+            is_reversed = False if i == 0 else True
+            try:
+                template.reconstruct_pieces_from_faces(
+                    is_reversed=is_reversed,
+                    reject_two_pieces=reject_two_pieces,
+                    desirable_piece_num=desirable_piece_num,
+                    n_tries=n_tries,
+                )
+            except Exception as e:
+                raise e
+            if visualize_faces:
+                template.visualize_faces(
+                    output_file_path=(
+                        front_output_file_path.replace(".png", "_faces.png")
+                        if i == 0
+                        else back_output_file_path.replace(".png", "_faces.png")
+                    )
+                    if output_file_path is not None
+                    else None
+                )
+
+    new_template_panel = TemplatePanel()
+    for i, (new_template, template) in enumerate(
+        zip(new_template_panel.templates, template_panel.templates)
+    ):
+        if i == 0 or i == 1:
+            Decoder.decode_embedded_template_to_piece_edge(
+                template,
+                new_template,
+                use_vertex_constraints=use_vertex_constraints,
+                address_inside_seam=address_inside_seam,
+            )
+            if visualize:
+                new_template.visualize_meshes()
+            if output_file_path is not None:
+                new_template.visualize_meshes(
+                    output_file_path=front_output_file_path
+                    if i == 0
+                    else back_output_file_path
+                )
+
+    if not reconstruct_spec_json:
+        return
+
+    new_template_front = new_template_panel.templates[0]
+    new_template_back = new_template_panel.templates[1]
+
+    new_template_front.assign_global_index_to_edges()
+    new_template_back.assign_global_index_to_edges()
+
+    side_by_side_stitched_edges_pairs_front = (
+        Template.correspond_side_by_side_stitched_edges(new_template_front)
+    )
+    side_by_side_stitched_edges_pairs_back = (
+        Template.correspond_side_by_side_stitched_edges(new_template_back)
+    )
+    new_template_front.side_by_side_stitched_edges_pairs = (
+        side_by_side_stitched_edges_pairs_front
+    )
+    new_template_back.side_by_side_stitched_edges_pairs = (
+        side_by_side_stitched_edges_pairs_back
+    )
+
+    front_to_back_stitched_edges_pairs = (
+        Template.correspond_front_to_back_stitched_edges(
+            new_template_front, new_template_back
+        )
+    )
+    new_template_front.front_to_back_stitched_edges_pairs = (
+        front_to_back_stitched_edges_pairs
+    )
+    new_template_back.front_to_back_stitched_edges_pairs = (
+        front_to_back_stitched_edges_pairs
+    )
+
+    panel_to_edge_info_front = NeuralTailorConverter.convert_to_panel_to_edge_info(
+        new_template_front,
+        garment_type=garment_type,
+        strict_garment_type=strict_garment_type,
+        is_front=True,
+        predefined_scale=predefined_scale,
+    )
+    panel_to_edge_info_back = NeuralTailorConverter.convert_to_panel_to_edge_info(
+        new_template_back,
+        garment_type=garment_type,
+        strict_garment_type=strict_garment_type,
+        is_front=False,
+        predefined_scale=predefined_scale,
+    )
+    panel_to_edge_info = {**panel_to_edge_info_front, **panel_to_edge_info_back}
+    panel_to_edge_info = NeuralTailorConverter.add_front_to_back_stitch_info(
+        panel_to_edge_info, new_template_front, new_template_back
+    )
+    panel_id_to_translation = {
+        k: [0.0, 0.0, 18.0]
+        if NeuralTailorConverter.judge_front(k)
+        else [0.0, 0.0, -18.0]
+        for k in panel_to_edge_info.keys()
+    }
+    panel_id_to_rotation = {k: [0.0, 0.0, 0.0] for k in panel_to_edge_info.keys()}
+
+    spec_json = (
+        NeuralTailorConverter.construct_specification_json_from_panel_to_edge_info(
+            panel_to_edge_info,
+            panel_id_to_translation=panel_id_to_translation,
+            panel_id_to_rotation=panel_id_to_rotation,
+        )
+    )
+
+    if output_file_path is not None:
+        with open(spec_json_file_path, "w") as f:
+            json.dump(spec_json, f, indent=4)
+
+    return spec_json
