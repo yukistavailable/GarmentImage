@@ -7,6 +7,14 @@ if TYPE_CHECKING:
 
 
 class DrawPanel:
+    """
+    DrawPanel is a class that represents a drawing panel for garment pieces.
+    It contains a list of pieces and provides methods to retrieve the pieces by layer.
+    It also defines the dimensions of the panel.
+    The default dimensions are 512x512 pixels.
+    The name of the class, DrawPanel, should be changed to other names like PatternPanel because it is not used for drawing anymore.
+    """
+
     width: int = 512
     height: int = 512
 

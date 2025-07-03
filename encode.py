@@ -76,7 +76,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--skirt_alignment",
         action="store_true",
-        help="Whether align stitches of skirt or not",
+        help="Whether align stitches of skirt or not. Deprecated",
     )
     parser.add_argument(
         "--front_to_back_alignment",
@@ -88,18 +88,6 @@ if __name__ == "__main__":
         "--merged_panels",
         nargs="*",
         help="Names of panels to be merged",
-    )
-    parser.add_argument(
-        "-u",
-        "--add_uv",
-        action="store_true",
-        help="Whether align stitches or not",
-    )
-    parser.add_argument(
-        "-s",
-        "--symmetrize",
-        action="store_true",
-        help="Whether symmetrize the garment or not",
     )
     parser.add_argument(
         "--scale",
@@ -122,14 +110,14 @@ if __name__ == "__main__":
     y_axis_alignment = args.y_axis_alignment
     wb_alignment = args.wb_alignment
     merged_panels = args.merged_panels
-    add_uv = args.add_uv
-    symmetrize = args.symmetrize
     predefined_scale = args.scale
     # removed_panels = ["skirt_front", "skirt_back"]
     removed_panels = None
 
     input_pattern_file_ext = os.path.splitext(input_pattern_file_path)[1]
     if input_pattern_file_ext == ".json":
+        # Load the pattern from a JSON file
+        # `pieces_original_shape` is used to store the original shape of the pieces, which is needed for constraint encoding
         pieces_original_shape: List[Piece] = NeuralTailorConverter.load_spec_json(
             input_pattern_file_path,
             parameterize=parameterize or random_parameterize,
@@ -143,7 +131,6 @@ if __name__ == "__main__":
             front_to_back_alignment=False,
             removed_panels=removed_panels,
             merged_panels=merged_panels,
-            add_uv=add_uv,
             predefined_scale=predefined_scale,
         )
         draw_panel_original_shape = DrawPanel(pieces_original_shape)
@@ -154,6 +141,9 @@ if __name__ == "__main__":
             update_points=False,
             # pieces_original_shape
         )
+
+        # Load the pattern from a JSON file
+        # `pieces` is deformed and translated to guarantee that the stitches are aligned
         pieces: List[Piece] = NeuralTailorConverter.load_spec_json(
             input_pattern_file_path,
             parameterize=parameterize or random_parameterize,
@@ -167,21 +157,16 @@ if __name__ == "__main__":
             front_to_back_alignment=args.front_to_back_alignment,
             removed_panels=removed_panels,
             merged_panels=merged_panels,
-            add_uv=add_uv,
             predefined_scale=predefined_scale,
         )
         draw_panel = DrawPanel(pieces)
         template_panel = TemplatePanel()
         template_panel.load_pieces(pieces, update_corners=False, update_points=False)
-    elif input_pattern_file_ext == ".ptn":
-        pieces = File.load(input_pattern_file_path)
-        draw_panel = DrawPanel(pieces)
-        template_panel = TemplatePanel()
-        template_panel.load_uv_pieces(pieces)
     else:
         raise ValueError(
-            f"Invalid file format. Only .json and .ptn are supported but got {input_pattern_file_ext}"
+            f"Invalid file format. Only .json is supported but got {input_pattern_file_ext}"
         )
+
     Piece.visualize_pieces(pieces, output_file_path="output_debug4/pieces.png")
     encoder = Encoder()
     template_panel.encode(
@@ -199,6 +184,7 @@ if __name__ == "__main__":
             os.makedirs(os.path.dirname(output_file_path))
 
     File.save_binary_as_npy(template_panel, output_file_path)
+
     if args.visualize:
         garmentimage_np = np.load(output_file_path)
         visualize_np_garmentimage(

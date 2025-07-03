@@ -268,7 +268,6 @@ class Template(Mesh2D):
                 template_piece: TemplatePiece = TemplatePiece(
                     _piece=piece, _template=self
                 )
-                print(f"{len(piece.seams)=}")
 
     @staticmethod
     def find_closed_stroke(edges: Set[Edge2D]) -> List[Edge2D]:
@@ -1620,9 +1619,6 @@ class Template(Mesh2D):
                         initial_direction,
                     )
 
-        print(f"initial_direction: {initial_direction}")
-        print(f"final_direction: {final_direction}")
-
         ordered_axes: List[str] = ["x", "y"]
         if (
             initial_direction is Template.Direction.LEFT
@@ -1634,11 +1630,9 @@ class Template(Mesh2D):
             or initial_direction is Template.Direction.DOWN
         ):
             ordered_axes = ["y", "x"]
-        print(f"ordered_axes: {ordered_axes}")
 
         delta = int(Template.W / Template.N)
         for axis in ordered_axes:
-            print(f"axis: {axis}")
             if axis == "x":
                 while abs(x_diff) > 0:
                     if x_diff > 0:

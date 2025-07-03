@@ -406,7 +406,6 @@ class BoundaryEmbedding:
                             piece_to_path[piece].append(path[0])
                         assert len(path) >= 2, "path needs to have at least 2 vertices"
                         piece_to_path[piece].extend(path[1:])
-                        print(f"path: {path}")
                         seam.points = path
 
         # fill the faces
