@@ -179,9 +179,9 @@ if __name__ == "__main__":
         output_file_path = os.path.join(
             "output", os.path.splitext(input_pattern_file_path)[0] + ".npy"
         )
-        # if output file path does not exist, create it
-        if not os.path.exists(os.path.dirname(output_file_path)):
-            os.makedirs(os.path.dirname(output_file_path))
+    # if output file path does not exist, create it
+    if not os.path.exists(os.path.dirname(output_file_path)):
+        os.makedirs(os.path.dirname(output_file_path))
 
     File.save_binary_as_npy(template_panel, output_file_path)
 
