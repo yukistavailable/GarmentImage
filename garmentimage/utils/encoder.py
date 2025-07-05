@@ -23,7 +23,7 @@ class Encoder:
     def __init__(self):
         self.mesh2D_to_piece: Dict[Mesh2D, Piece] = {}
 
-    def encode_pieces_to_template_v2(
+    def encode_pieces_to_template(
         self,
         pieces: List[Piece],
         template: Template,
@@ -47,7 +47,7 @@ class Encoder:
         template.clear_meshes()
         template.original_meshes.clear()
         for piece in pieces:
-            Embedding.embed_seam_type_into_template_v3(
+            Embedding.embed_seam_type_into_template(
                 piece, piece_to_faces[piece], template
             )
 
@@ -60,15 +60,13 @@ class Encoder:
                 template=template,
             )
             original_meshes.append(piece_mesh.duplicate())
-            constraints: Dict[Vertex2D, Vertex2D] = (
-                Encoder.find_transfer_constraints_v2(
-                    piece_mesh,
-                    piece,
-                    is_reversed,
-                    piece_original_shape=None
-                    if pieces_original_shape is None
-                    else pieces_original_shape[i],
-                )
+            constraints: Dict[Vertex2D, Vertex2D] = Encoder.find_transfer_constraints(
+                piece_mesh,
+                piece,
+                is_reversed,
+                piece_original_shape=None
+                if pieces_original_shape is None
+                else pieces_original_shape[i],
             )
             assert piece.template_piece is not None, "piece.template_piece is None"
             piece.template_piece.add_constraints(constraints)
@@ -136,12 +134,14 @@ class Encoder:
     ):
         """
         Deforms the piece mesh to match the constraints provided.
+
         Parameters
         ----------
         piece_mesh: Mesh2D
             The mesh of the piece to deform.
         constraints: Dict[Vertex2D, Vertex2D]
             A dictionary mapping vertices in the piece mesh to their target positions.
+
         Returns
         -------
         None
@@ -391,7 +391,7 @@ class Encoder:
         return boundary_edges
 
     @staticmethod
-    def find_transfer_constraints_v2(
+    def find_transfer_constraints(
         piece_mesh: Mesh2D,
         piece: Piece,
         is_reversed: bool,
@@ -448,49 +448,6 @@ class Encoder:
                 mesh_edge: Optional[List[Vertex2D]] = (
                     Encoder.find_corresponding_mesh_edge(
                         piece_mesh, v0, v1, is_reversed=is_reversed
-                    )
-                )
-                if mesh_edge is not None:
-                    if len(path) == 0:
-                        path.append(mesh_edge[0])
-                    path.append(mesh_edge[1])
-            n: int = len(path)
-            for i in range(n):
-                piece_mesh_v: Vertex2D = path[i]
-                target_position: Vertex2D = Encoder.sample_point_on_curve(
-                    target_seam, i / (n - 1)
-                )
-                constraints[piece_mesh_v] = target_position
-        return constraints
-
-    @staticmethod
-    def find_transfer_constraints(
-        piece_mesh: Mesh2D,
-        piece: Piece,
-        is_reversed: bool,
-        piece_original_shape: Optional[Piece] = None,
-    ) -> Dict[Vertex2D, Vertex2D]:
-        constraints: Dict[Vertex2D, Vertex2D] = {}
-        if piece_original_shape is not None:
-            seams = Piece.sorted_seams(piece.get_all_seams())
-            target_seams = Piece.sorted_seams(piece_original_shape.get_all_seams())
-            iter_seams = zip(
-                seams,
-                target_seams,
-            )
-        else:
-            seams = Piece.sorted_seams(piece.get_all_seams())
-            iter_seams = zip(seams, seams)
-        for seam, target_seam in iter_seams:
-            points: List[Vertex2D] = piece.template_piece.seam_to_points[seam]
-            path: List[Vertex2D] = []
-            for i in range(len(points) - 1):
-                v0: Vertex2D = points[i]
-                v1: Vertex2D = points[i + 1]
-                # find an edge in a mesh that corresponds to two given vertices v0 and v1
-                mesh_edge: Optional[List[Vertex2D]] = (
-                    Encoder.find_corresponding_mesh_edge(
-                        piece_mesh, v0, v1, is_reversed
                     )
                 )
                 if mesh_edge is not None:

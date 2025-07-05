@@ -233,7 +233,7 @@ class TemplatePanel:
             # i = 1
             reversed: bool = False if (i == 0 or i == 2) else True
             assert layer_pieces[i] is not None
-            encoder.encode_pieces_to_template_v2(
+            encoder.encode_pieces_to_template(
                 layer_pieces[i],
                 self.templates[i],
                 reversed,

@@ -421,14 +421,14 @@ def decode_garmentimage(
                 use_vertex_constraints=use_vertex_constraints,
                 address_inside_seam=address_inside_seam,
             )
-            if visualize:
-                new_template.visualize_meshes()
             if output_file_path is not None:
                 new_template.visualize_meshes(
                     output_file_path=front_output_file_path
                     if i == 0
                     else back_output_file_path
                 )
+            elif visualize:
+                new_template.visualize_meshes()
 
     if not reconstruct_spec_json:
         return

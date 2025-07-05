@@ -253,6 +253,7 @@ class Template(Mesh2D):
             count += 1
             if desirable_piece_num is not None and len(pieces) == desirable_piece_num:
                 best_pieces = [piece for piece in pieces]
+                max_piece_num = len(pieces)
                 break
             if len(pieces) > max_piece_num:
                 max_piece_num = len(pieces)

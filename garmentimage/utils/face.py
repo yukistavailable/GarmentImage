@@ -85,6 +85,18 @@ class Face2D:
     def extract_inside_edges_non_none_seam_type_from_faces(
         faces: List[Face2D],
     ) -> List[Edge2D]:
+        """
+        Parameters
+        ----------
+        faces: List[Face2D]
+            List of Face2D objects to extract edges from.
+        Returns
+        -------
+        List[Edge2D]
+            List of edges that are inside and have a non-None seam type.
+
+        This method returns a lift of edges that are not Seam.NONE and are inside the faces.
+        """
         edges: List[Edge2D] = []
         for face in faces:
             for edge in face.edges:

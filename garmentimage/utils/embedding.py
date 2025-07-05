@@ -14,7 +14,6 @@ from garmentimage.utils.template import Template
 from garmentimage.utils.vertex2d import Vector2, Vertex2D
 
 if TYPE_CHECKING:
-    from garmentimage.utils.edge2d import Edge2D
     from garmentimage.utils.piece import Piece
 
 
@@ -43,7 +42,7 @@ class Embedding:
         pass
 
     @staticmethod
-    def embed_seam_type_into_template_v3(
+    def embed_seam_type_into_template(
         piece: Piece, faces: List[Face2D], template: Template
     ):
         """
@@ -101,172 +100,15 @@ class Embedding:
                 ].Y_EDGE_TYPE
 
     @staticmethod
-    def embed_seam_type_into_template_v2(piece: Piece, template: Template):
-        seams: List[Seam] = piece.seams if piece.seams else []
-        for seam in seams:
-            assert seam.start.corner is not None and seam.end.corner is not None, (
-                "The start and end of the seam are not set. Please set them before embedding."
-            )
-            print(f"seam.points: {seam.points}")
-            for i in range(len(seam.points) - 1):
-                v0: Vertex2D = seam.points[i]
-                v1: Vertex2D = seam.points[i + 1]
-
-                xy0: List[int] = Template.get_grid_xy(v0)
-                xy1: List[int] = Template.get_grid_xy(v1)
-                print(f"xy0: {xy0}, xy1: {xy1}")
-
-                # left and bottom
-                x: int = min(xy0[0], xy1[0])
-                y: int = min(xy0[1], xy1[1])
-
-                if xy0[1] == xy1[1]:
-                    template.grid_vertices[x][y].X_EDGE_TYPE = seam.type
-                else:
-                    template.grid_vertices[x][y].Y_EDGE_TYPE = seam.type
-
-        for x in range(Template.N):  # Assuming Template.N defines the grid size
-            for y in range(Template.N):
-                template.h_edges[x][y].seam_type = template.grid_vertices[x][
-                    y
-                ].X_EDGE_TYPE
-                template.v_edges[x][y].seam_type = template.grid_vertices[x][
-                    y
-                ].Y_EDGE_TYPE
-
-    @staticmethod
-    def embed_seam_type_into_template(
-        piece: Piece, template: Template, faces: Optional[List[Face2D]] = None
-    ):
-        seams: List[Seam] = piece.get_all_seams()
-        tmp_mesh: Optional[Mesh2D] = (
-            Mesh2D(faces, integrate_adjascent_face_edges=True)
-            if faces is not None
-            else None
-        )
-        for seam in seams:
-            if faces is not None:
-                v0: Vertex2D = seam.start.corner
-                v1: Vertex2D = seam.end.corner
-                seam_points: List[Vertex2D] = Template.get_path(
-                    tmp_mesh,
-                    v0,
-                    v1,
-                    boundary_only=False,
-                    is_reversed=False,
-                    seam_type=None,
-                )
-            else:
-                seam_points: List[Vertex2D] = piece.template_piece.seam_to_points[seam]
-            for j in range(len(seam_points) - 1):
-                v0: Vertex2D = seam_points[j]
-                v1: Vertex2D = seam_points[j + 1]
-
-                xy0: List[int] = Template.get_grid_xy(v0)
-                xy1: List[int] = Template.get_grid_xy(v1)
-
-                # top and right
-                x: int = min(xy0[0], xy1[0])
-                y: int = min(xy0[1], xy1[1])
-
-                if xy0[1] == xy1[1]:
-                    template.grid_vertices[x][y].X_EDGE_TYPE = seam.type
-                else:
-                    template.grid_vertices[x][y].Y_EDGE_TYPE = seam.type
-
-        for x in range(Template.N):  # Assuming Template.N defines the grid size
-            for y in range(Template.N):
-                template.h_edges[x][y].seam_type = template.grid_vertices[x][
-                    y
-                ].X_EDGE_TYPE
-                template.v_edges[x][y].seam_type = template.grid_vertices[x][
-                    y
-                ].Y_EDGE_TYPE
-
-    @staticmethod
-    def modify_seam_points(piece: Piece, template: Template, faces: List[Face2D]):
-        seams = piece.get_all_seams()
-        tmp_mesh: Optional[Mesh2D] = (
-            Mesh2D(faces, integrate_adjacent_face_edges=True)
-            if faces is not None
-            else None
-        )
-        for seam in seams:
-            if seam.type != Seam.BOUNDARY:
-                seam_points = piece.template_piece.seam_to_points[seam]
-                new_seam_points: List[Vertex2D] = [point for point in seam_points]
-                updated_flag = False
-                for j in range(len(seam_points) - 1):
-                    template_v0: Vertex2D = seam_points[j]
-                    template_v1: Vertex2D = seam_points[j + 1]
-                    v0: Vertex2D = tmp_mesh.find_nearest_vertex(template_v0)
-                    v1: Vertex2D = tmp_mesh.find_nearest_vertex(template_v1)
-                    edge: Edge2D = v0.get_common_edge(v1)
-                    if (edge.left_face is not None and edge.left_face.inside == 1) and (
-                        edge.right_face is not None and edge.right_face.inside == 1
-                    ):
-                        if j == 1:
-                            x0, y0 = Template.get_grid_xy(template_v0)
-                            x1, y1 = Template.get_grid_xy(template_v1)
-                            template_new_v0: Vertex2D = template.grid_vertices[x0][
-                                y0 - 1
-                            ]
-                            new_v0: Vertex2D = tmp_mesh.find_nearest_vertex(
-                                template_new_v0
-                            )
-                            new_seam_points[0] = new_v0
-                            if x0 < x1:
-                                template.grid_vertices[x0][y0].X_EDGE_TYPE = Seam.NONE
-                                template.grid_vertices[x0][
-                                    y0 - 1
-                                ].X_EDGE_TYPE = seam.type
-                                template.grid_vertices[x1][
-                                    y0 - 1
-                                ].Y_EDGE_TYPE = seam.type
-                            else:
-                                template.grid_vertices[x1][y0].X_EDGE_TYPE = Seam.NONE
-                                template.grid_vertices[x1][
-                                    y0 - 1
-                                ].X_EDGE_TYPE = seam.type
-                                template.grid_vertices[x1][
-                                    y0 - 1
-                                ].Y_EDGE_TYPE = seam.type
-
-                        elif j == len(seam_points) - 3:
-                            x0, y0 = Template.get_grid_xy(template_v0)
-                            x1, y1 = Template.get_grid_xy(template_v1)
-                            template_new_v1: Vertex2D = template.grid_vertices[x0][
-                                y0 - 1
-                            ]
-                            new_v1: Vertex2D = tmp_mesh.find_nearest_vertex(
-                                template_new_v1
-                            )
-                            new_seam_points[j + 1] = new_v1
-                            if x0 < x1:
-                                template.grid_vertices[x0][y0].X_EDGE_TYPE = Seam.NONE
-                                template.grid_vertices[x0][
-                                    y0 - 1
-                                ].X_EDGE_TYPE = seam.type
-                                template.grid_vertices[x0][
-                                    y0 - 1
-                                ].Y_EDGE_TYPE = seam.type
-                            else:
-                                template.grid_vertices[x1][y1].X_EDGE_TYPE = Seam.NONE
-                                template.grid_vertices[x1][
-                                    y1 - 1
-                                ].X_EDGE_TYPE = seam.type
-                                template.grid_vertices[x0][
-                                    y1 - 1
-                                ].Y_EDGE_TYPE = seam.type
-
-                        updated_flag = True
-                        break
-                if updated_flag:
-                    piece.template_piece.seam_to_points[seam] = new_seam_points
-                    # seam.points = new_seam_points
-
-    @staticmethod
     def embed_transformation_into_template(piece_mesh: Mesh2D, template: Template):
+        """
+        Parameters
+        ----------
+        piece_mesh : Mesh2D
+            The mesh of the piece whose transformation will be embedded into the template.
+        template : Template
+            The template into which the piece's transformation will be embedded.
+        """
         for face in piece_mesh.faces:
             grid_xy: List[int] = face.get_vertex(0).grid_xy
 
