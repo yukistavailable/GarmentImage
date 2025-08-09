@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -23,6 +24,63 @@ from garmentimage.utils.template_panel import TemplatePanel
 from garmentimage.utils.utils import GarmentImageType
 from garmentimage.utils.vertex2d import Vertex2D
 
+logger = logging.getLogger(__name__)
+
+
+# -----------------------------
+# Small utilities
+# -----------------------------
+
+
+def _resolve_desirable_piece_num(
+    garment_type: Optional[str], desirable_piece_num: Optional[int]
+) -> Optional[int]:
+    if garment_type is None or desirable_piece_num is not None:
+        return desirable_piece_num
+
+    panel_to_desirable_piece_num = {
+        "dress_sleeveless": 1,
+        "dress": 3,
+        "jumpsuit_sleeveless": 3,
+        "jumpsuit": 5,
+        "dress_sleeveless_centerseparated_skirtremoved": 2,
+        "dress_sleeveless_skirtremoved": 1,
+        "dress_centerseparated_skirtremoved": 4,
+        "dress_skirtremoved": 3,
+        "unmerged_dress": 4,
+        "unmerged_dress_sleeveless": 2,
+        "jumpsuit_centerseparated": 6,
+        "jumpsuit_sleeveless_centerseparated": 4,
+        "unmerged_dress_centerseparated": 5,
+        "one_genus_jumpsuit_sleeveless": 4,
+        "merged_jumpsuit_sleeveless": 1,
+    }
+    return panel_to_desirable_piece_num[garment_type]
+
+
+def _prepare_output_paths(output_file_path: str) -> Tuple[str, str, str]:
+    output_dir = os.path.dirname(output_file_path)
+    os.makedirs(output_dir, exist_ok=True)
+    stem = os.path.splitext(os.path.basename(output_file_path))[0]
+    front_png = os.path.join(output_dir, f"{stem}_front.png")
+    back_png = os.path.join(output_dir, f"{stem}_back.png")
+    spec_json = os.path.join(output_dir, f"{stem}_specification.json")
+    return front_png, back_png, spec_json
+
+
+def _to_numpy(garmentimage: GarmentImageType) -> np.ndarray:
+    if isinstance(garmentimage, str):
+        return np.load(garmentimage)
+    if isinstance(garmentimage, torch.Tensor):
+        g = garmentimage[0] if len(garmentimage.shape) == 4 else garmentimage
+        return g.cpu().detach().numpy()
+    return np.asarray(garmentimage)
+
+
+# -----------------------------
+# Core class
+# -----------------------------
+
 
 class Decoder:
     @staticmethod
@@ -33,9 +91,8 @@ class Decoder:
         store_original_meshes: bool = False,
         address_inside_seam: bool = False,
     ) -> None:
-        pieces = [
-            template_piece.piece for template_piece in target_template.template_pieces
-        ]
+        """Construct piece meshes for each piece and deform edges to target template."""
+        pieces = [tp.piece for tp in target_template.template_pieces]
         piece_to_faces: Dict[Piece, List[Face2D]] = (
             BoundaryEmbedding.assign_faces_to_pieces(target_template, pieces)
         )
@@ -45,19 +102,19 @@ class Decoder:
         if store_original_meshes:
             original_meshes = new_template.original_meshes
             new_template.original_meshes.clear()
-        for piece_index, piece in enumerate(pieces):
+
+        for piece in pieces:
             faces: List[Face2D] = piece_to_faces[piece]
-            # construct a mesh from the boundary of the piece and the target faces
             piece_mesh: Mesh2D = Encoder.get_mesh2D(
                 piece,
                 faces,
                 decode_mode=True,
                 address_inside_seam=address_inside_seam,
             )
-            if store_original_meshes:
+            if store_original_meshes and original_meshes is not None:
                 original_meshes.append(piece_mesh.duplicate())
-            if len(piece_mesh.vertices) == 0:
-                print(f"Piece {piece} has no vertices")
+            if not piece_mesh.vertices:
+                logger.warning("Piece %s has no vertices; skipping", piece)
                 continue
             Decoder.deform_piece_edge(
                 faces,
@@ -65,8 +122,8 @@ class Decoder:
                 piece_mesh,
                 use_vertex_constraints=use_vertex_constraints,
             )
-            # TODO: set seam type
             meshes.append(piece_mesh)
+
         new_template.edge_global_index_to_piece_index_and_local_index = (
             target_template.edge_global_index_to_piece_index_and_local_index
         )
@@ -82,15 +139,15 @@ class Decoder:
         piece_mesh.set_indices()
         num_edges = len(faces) * 4
         num_vertices = len(piece_mesh.vertices)
+        if num_vertices == 0:
+            logger.warning("deform_piece_edge: mesh has 0 vertices; skip")
+            return
+
         if use_vertex_constraints:
-            # the following line cau cause division by zero error
-            weight = 1 / num_vertices
+            weight = 1.0 / float(num_vertices)  # safe, num_vertices > 0
             L = lil_matrix((num_edges + num_vertices, num_vertices))
             Bx = np.zeros(num_edges + num_vertices)
             By = np.zeros(num_edges + num_vertices)
-            # L = lil_matrix((num_edges + 1, num_vertices))
-            # Bx = np.zeros(num_edges + 1)
-            # By = np.zeros(num_edges + 1)
         else:
             L = lil_matrix((num_edges, num_vertices))
             Bx = np.zeros(num_edges)
@@ -118,6 +175,7 @@ class Decoder:
             piece_v_edge1 = Decoder.extract_edge_from_mesh(
                 piece_mesh, v_edge1, edge_idx=3
             )
+
             edge_index = i * 4
             L[edge_index, piece_h_edge0.start.index] = -1
             L[edge_index, piece_h_edge0.end.index] = 1
@@ -139,7 +197,7 @@ class Decoder:
             Bx[edge_index + 3] = target_v_edge1.x
             By[edge_index + 3] = target_v_edge1.y
 
-            # set seam type
+            # propagate seam types
             piece_h_edge0.seam_type = h_edge0.seam_type
             piece_h_edge1.seam_type = h_edge1.seam_type
             piece_v_edge0.seam_type = v_edge0.seam_type
@@ -147,20 +205,14 @@ class Decoder:
 
         if use_vertex_constraints:
             for i, v in enumerate(piece_mesh.vertices):
-                index = num_edges + i
-                L[index, v.index] = 1 * weight
-                Bx[index] = v.x * weight
-                By[index] = v.y * weight
-            # v = piece_mesh.vertices[0]
-            # index = num_edges
-            # L[index, v.index] = 1
-            # Bx[index] = v.x
-            # By[index] = v.y
+                idx = num_edges + i
+                L[idx, v.index] = weight
+                Bx[idx] = v.x * weight
+                By[idx] = v.y * weight
 
         L = L.tocsr()
         xs = spsolve(L.T @ L, L.T @ Bx)
         ys = spsolve(L.T @ L, L.T @ By)
-
         for i, v in enumerate(piece_mesh.vertices):
             v.x = xs[i]
             v.y = ys[i]
@@ -169,23 +221,8 @@ class Decoder:
     def extract_edge_from_mesh(
         mesh: Mesh2D, target_edge: Edge2D, edge_idx: Optional[int] = None
     ) -> Optional[Edge2D]:
-        """
-        Return the edge in a mesh that has the same start and end vertices as the target edge
-        Parameters
-        ----------
-        mesh : Mesh2D
-            A 2D mesh
-        target_edge : Edge2D
-            A target edge
-        edge_idx:
-            0: h_edge0
-            1: h_edge1
-            2: v_edge0
-            3: v_edge1
-        Returns
-        -------
-        Edge2D
-            The edge in the mesh that has the same start and end vertices as the target edge
+        """Return mesh edge with same endpoints as target_edge; optionally disambiguate by edge_idx.
+        edge_idx mapping: 0=h_edge0, 1=h_edge1, 2=v_edge0, 3=v_edge1.
         """
         edges: List[Edge2D] = []
         for edge in mesh.edges:
@@ -194,44 +231,37 @@ class Decoder:
             ) and Vertex2D.same_position(edge.end, target_edge.end):
                 if edge_idx is None:
                     return edge
-                else:
-                    edges.append(edge)
+                edges.append(edge)
+
         if edge_idx is not None and len(edges) > 1:
-            # this is kireme: https://github.com/yukistavailable/Dresscode/issues/171
+            # kireme case; choose edge based on sorted face edge order
             for edge in edges:
                 face = edge.left_face if edge.left_face is not None else edge.right_face
                 assert face is not None
                 face_edges = Decoder.sort_face_edges(face.edges)
-                for i, face_edge in enumerate(face_edges):
+                actual_idx = None
+                for i, fe in enumerate(face_edges):
                     if Vertex2D.same_position(
-                        edge.start, face_edge.start
-                    ) and Vertex2D.same_position(edge.end, face_edge.end):
-                        actual_edge_idx = i
-                if actual_edge_idx == edge_idx:
+                        edge.start, fe.start
+                    ) and Vertex2D.same_position(edge.end, fe.end):
+                        actual_idx = i
+                        break
+                if actual_idx == edge_idx:
                     return edge
         elif len(edges) == 1:
             return edges[0]
-
         return None
 
     @staticmethod
-    def sort_face_edges(edges: List[Edge2D]) -> Tuple[Edge2D]:
-        """
-        Sort a list of edges in a face in a specific order
-        """
+    def sort_face_edges(edges: List[Edge2D]) -> Tuple[Edge2D, Edge2D, Edge2D, Edge2D]:
+        """Sort edges of a face into (h_edge0, h_edge1, v_edge0, v_edge1)."""
         assert len(edges) == 4
-        edges.sort(
-            key=lambda edge: edge.start.x + edge.start.y + edge.end.x + edge.end.y
-        )
+        edges.sort(key=lambda e: e.start.x + e.start.y + e.end.x + e.end.y)
         if edges[0].end.y > edges[1].end.y:
             edges[0], edges[1] = edges[1], edges[0]
         if edges[2].start.x > edges[3].start.x:
             edges[2], edges[3] = edges[3], edges[2]
-        h_edge0 = edges[0]
-        h_edge1 = edges[2]
-        v_edge0 = edges[1]
-        v_edge1 = edges[3]
-        return (h_edge0, h_edge1, v_edge0, v_edge1)
+        return edges[0], edges[2], edges[1], edges[3]
 
     @staticmethod
     def reconstruct_pieces(
@@ -247,23 +277,19 @@ class Decoder:
             piece.reversed = is_reversed
             if draw_panel is not None:
                 draw_panel.pieces.append(piece)
-            template_panel.add_piece(piece)
+            if template_panel is not None:
+                template_panel.add_piece(piece)
 
     @staticmethod
     def generate_piece(boundary: List[Vertex2D]) -> Piece:
         seams: List[Seam] = []
-        n: int = len(boundary)
+        n = len(boundary)
         for i in range(n):
-            v0: Vertex2D = boundary[i]
-            v1: Vertex2D = boundary[(i + 1) % n]
-            stroke: List[Vertex2D] = []
-            stroke.append(v0)
-            stroke.append(Vertex2D.mid_point(v0, v1))
-            stroke.append(v1)
-            seam: Seam = Seam(stroke)
-            seams.append(seam)
-        piece: Piece = Piece(seams)
-        return piece
+            v0 = boundary[i]
+            v1 = boundary[(i + 1) % n]
+            stroke = [v0, Vertex2D.mid_point(v0, v1), v1]
+            seams.append(Seam(stroke))
+        return Piece(seams)
 
     @staticmethod
     def trace_boundary(mesh: Mesh2D) -> List[Vertex2D]:
@@ -272,6 +298,7 @@ class Decoder:
             if edge.left_face is None or edge.right_face is None:
                 start_edge = edge
                 break
+        assert start_edge is not None, "No boundary edge found"
         loop: List[Vertex2D] = []
         prev_v: Vertex2D = (
             start_edge.start if start_edge.left_face is None else start_edge.end
@@ -299,6 +326,11 @@ class Decoder:
         return None
 
 
+# -----------------------------
+# Public API
+# -----------------------------
+
+
 def decode_garmentimage(
     garmentimage: GarmentImageType,
     output_file_path: Optional[str] = None,
@@ -307,7 +339,7 @@ def decode_garmentimage(
     use_vertex_constraints: bool = True,
     predefined_scale: float = 2.75,
     reconstruct_spec_json: bool = False,
-    inside_theshold: float = 0.5,
+    inside_threshold: float = 0.5,
     garment_type: Optional[str] = None,
     strict_garment_type: bool = True,
     reject_two_pieces: bool = False,
@@ -315,12 +347,18 @@ def decode_garmentimage(
     n_tries: int = 5,
     address_inside_seam: bool = False,
 ) -> Optional[Dict[str, Any]]:
+    """Decode a GarmentImage into meshes and optionally a specification JSON.
+
+    Parameters largely mirror the original implementation with safer defaults and
+    clearer naming.
+    """
     visualize_faces = visualize_faces or visualize
+
     if reconstruct_spec_json:
         assert garment_type is not None or desirable_piece_num is not None, (
             "garment_type or desirable_piece_num should be specified"
         )
-        assert garment_type in [
+        valid = {
             None,
             "dress",
             "jumpsuit",
@@ -337,121 +375,83 @@ def decode_garmentimage(
             "unmerged_dress_centerseparated",
             "one_genus_jumpsuit_sleeveless",
             "merged_jumpsuit_sleeveless",
-        ], (
-            f"garment_type should be either dress, jumpsuit, dress_sleeveless, or jumpsuit_sleeveless, but got {garment_type}"
-        )
-
-    if garment_type is not None and desirable_piece_num is None:
-        panel_to_desirable_piece_num = {
-            "dress_sleeveless": 1,
-            "dress": 3,
-            "jumpsuit_sleeveless": 3,
-            "jumpsuit": 5,
-            "dress_sleeveless_centerseparated_skirtremoved": 2,
-            "dress_sleeveless_skirtremoved": 1,
-            "dress_centerseparated_skirtremoved": 4,
-            "dress_skirtremoved": 3,
-            "unmerged_dress": 4,
-            "unmerged_dress_sleeveless": 2,
-            "jumpsuit_centerseparated": 6,
-            "jumpsuit_sleeveless_centerseparated": 4,
-            "unmerged_dress_centerseparated": 5,
-            "one_genus_jumpsuit_sleeveless": 4,
-            "merged_jumpsuit_sleeveless": 1,
         }
-        desirable_piece_num = panel_to_desirable_piece_num[garment_type]
+        assert garment_type in valid, (
+            f"garment_type should be one of {sorted([v for v in valid if v is not None])}, "
+            f"but got {garment_type}"
+        )
 
+    desirable_piece_num = _resolve_desirable_piece_num(
+        garment_type, desirable_piece_num
+    )
+
+    # prepare I/O
     if output_file_path is not None:
-        output_file_dir_path = os.path.dirname(output_file_path)
-        front_output_file_path = os.path.join(
-            output_file_dir_path,
-            os.path.splitext(os.path.basename(output_file_path))[0] + "_front.png",
-        )
-        back_output_file_path = os.path.join(
-            output_file_dir_path,
-            os.path.splitext(os.path.basename(output_file_path))[0] + "_back.png",
-        )
-        spec_json_file_path = os.path.join(
-            output_file_dir_path,
-            os.path.splitext(os.path.basename(output_file_path))[0]
-            + "_specification.json",
-        )
+        front_png, back_png, spec_json_path = _prepare_output_paths(output_file_path)
+    else:
+        front_png = back_png = spec_json_path = None  # type: ignore
+
+    # to numpy & build panel
+    gi_np = _to_numpy(garmentimage)
     template_panel = TemplatePanel()
-    # convert the garment image to np array
-    if isinstance(garmentimage, str):
-        garmentimage = np.load(garmentimage)
-    if isinstance(garmentimage, torch.Tensor):
-        if len(garmentimage.shape) == 4:
-            garmentimage = garmentimage[0]
-        garmentimage = garmentimage.cpu().detach().numpy()
+    template_panel.convert_from_np_array(gi_np, inside_threshold=inside_threshold)
 
-    template_panel.convert_from_np_array(garmentimage, inside_threshold=inside_theshold)
-
+    # 1) reconstruct faces → pieces
     for i, template in enumerate(template_panel.templates):
-        if i == 0 or i == 1:
-            is_reversed = False if i == 0 else True
-            try:
-                template.reconstruct_pieces_from_faces(
-                    is_reversed=is_reversed,
-                    reject_two_pieces=reject_two_pieces,
-                    desirable_piece_num=desirable_piece_num,
-                    n_tries=n_tries,
-                )
-            except Exception as e:
-                raise e
-            if visualize_faces:
-                template.visualize_faces(
-                    output_file_path=(
-                        front_output_file_path.replace(".png", "_faces.png")
-                        if i == 0
-                        else back_output_file_path.replace(".png", "_faces.png")
-                    )
-                    if output_file_path is not None
-                    else None
-                )
+        if i not in (0, 1):
+            continue
+        is_reversed = i == 1
+        template.reconstruct_pieces_from_faces(
+            is_reversed=is_reversed,
+            reject_two_pieces=reject_two_pieces,
+            desirable_piece_num=desirable_piece_num,
+            n_tries=n_tries,
+        )
+        if visualize_faces:
+            out = None
+            if output_file_path is not None:
+                out = (front_png if i == 0 else back_png).replace(".png", "_faces.png")
+            template.visualize_faces(output_file_path=out)
 
+    # 2) deform embedded templates → meshes
     new_template_panel = TemplatePanel()
     for i, (new_template, template) in enumerate(
         zip(new_template_panel.templates, template_panel.templates)
     ):
-        if i == 0 or i == 1:
-            Decoder.decode_embedded_template_to_piece_edge(
-                template,
-                new_template,
-                use_vertex_constraints=use_vertex_constraints,
-                address_inside_seam=address_inside_seam,
+        if i not in (0, 1):
+            continue
+        Decoder.decode_embedded_template_to_piece_edge(
+            template,
+            new_template,
+            use_vertex_constraints=use_vertex_constraints,
+            address_inside_seam=address_inside_seam,
+        )
+        if output_file_path is not None:
+            new_template.visualize_meshes(
+                output_file_path=(front_png if i == 0 else back_png)
             )
-            if output_file_path is not None:
-                new_template.visualize_meshes(
-                    output_file_path=front_output_file_path
-                    if i == 0
-                    else back_output_file_path
-                )
-            elif visualize:
-                new_template.visualize_meshes()
+        elif visualize:
+            new_template.visualize_meshes()
 
     if not reconstruct_spec_json:
-        return
+        return None
 
+    # 3) build spec JSON
     new_template_front = new_template_panel.templates[0]
     new_template_back = new_template_panel.templates[1]
 
     new_template_front.assign_global_index_to_edges()
     new_template_back.assign_global_index_to_edges()
 
-    side_by_side_stitched_edges_pairs_front = (
+    # side-by-side seams within each panel
+    new_template_front.side_by_side_stitched_edges_pairs = (
         Template.correspond_side_by_side_stitched_edges(new_template_front)
     )
-    side_by_side_stitched_edges_pairs_back = (
+    new_template_back.side_by_side_stitched_edges_pairs = (
         Template.correspond_side_by_side_stitched_edges(new_template_back)
     )
-    new_template_front.side_by_side_stitched_edges_pairs = (
-        side_by_side_stitched_edges_pairs_front
-    )
-    new_template_back.side_by_side_stitched_edges_pairs = (
-        side_by_side_stitched_edges_pairs_back
-    )
 
+    # front ↔ back seams
     front_to_back_stitched_edges_pairs = (
         Template.correspond_front_to_back_stitched_edges(
             new_template_front, new_template_back
@@ -478,10 +478,12 @@ def decode_garmentimage(
         is_front=False,
         predefined_scale=predefined_scale,
     )
+
     panel_to_edge_info = {**panel_to_edge_info_front, **panel_to_edge_info_back}
     panel_to_edge_info = NeuralTailorConverter.add_front_to_back_stitch_info(
         panel_to_edge_info, new_template_front, new_template_back
     )
+
     panel_id_to_translation = {
         k: [0.0, 0.0, 18.0]
         if NeuralTailorConverter.judge_front(k)
@@ -498,8 +500,8 @@ def decode_garmentimage(
         )
     )
 
-    if output_file_path is not None:
-        with open(spec_json_file_path, "w") as f:
+    if spec_json_path is not None:
+        with open(spec_json_path, "w") as f:
             json.dump(spec_json, f, indent=4)
 
     return spec_json
